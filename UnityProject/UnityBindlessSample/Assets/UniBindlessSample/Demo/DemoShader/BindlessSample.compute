@@ -1,0 +1,23 @@
+﻿#pragma kernel BindlessSampleKernel
+#pragma use_dxc
+
+uint _SliceCountX;
+uint _SliceWidth;
+uint _SliceHeight;
+
+StructuredBuffer<uint> _RegisteredHeapsMapBuffer;
+RWTexture2D<float4> rw_outputTex;
+
+void NUS_Require_SM66_Bindless() {}
+
+[numthreads(8, 8, 1)]
+void BindlessSampleKernel (uint3 id : SV_DispatchThreadID)
+{
+    NUS_Require_SM66_Bindless();
+    uint2 sliceGroupCoord = id.xy / uint2(_SliceWidth, _SliceHeight);
+    uint2 sliceCoord = id.xy % uint2(_SliceWidth, _SliceHeight);
+    uint texIdx = _RegisteredHeapsMapBuffer[sliceGroupCoord.x + sliceGroupCoord.y * _SliceCountX];
+    Texture2D<float4> sliceTex = ResourceDescriptorHeap[texIdx];
+    
+    rw_outputTex[id.xy] = sliceTex[sliceCoord];
+}
