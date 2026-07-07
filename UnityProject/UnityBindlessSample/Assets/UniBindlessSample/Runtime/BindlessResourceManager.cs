@@ -126,19 +126,9 @@ namespace UniBindlessSample
 
             foreach (var key in m_pendingZeroRef)
             {
-                if (m_currentEventDataIndices[poolIndex] >= MAX_EVENTS_PER_FRAME)
-                {
-                    Debug.LogWarning("[Bindless] 单帧卸载事件超限，剩余卸载任务将推迟到下一帧。");
-                    break;
-                }
-
                 if (m_resourceMap.TryGetValue(key, out var meta) && meta.refCount == 0)
                 {
                     uint index = meta.index;
-
-                    var data = new BindlessEventData { index = index };
-                    SubmitEventUnsafe(m_cmd, kEventUnregister, data);
-
                     m_pendingRelease.Enqueue((index, Time.frameCount));
 
                     m_resourceMap.Remove(key);
@@ -146,7 +136,32 @@ namespace UniBindlessSample
                 }
             }
             m_pendingZeroRef.Clear();
-            //
+
+            while (m_pendingRelease.Count > 0)
+            {
+                if (m_currentEventDataIndices[poolIndex] >= MAX_EVENTS_PER_FRAME)
+                {
+                    Debug.LogWarning($"[Bindless] 单帧事件超限 ({MAX_EVENTS_PER_FRAME})，剩余延迟释放任务推迟到下一帧!");
+                    break;
+                }
+
+                var pending = m_pendingRelease.Peek();
+
+                if (Time.frameCount >= pending.releaseFrame + m_maxQueuedFrames + 1)
+                {
+                    var readyToRelease = m_pendingRelease.Dequeue();
+
+                    var data = new BindlessEventData { index = readyToRelease.index };
+                    SubmitEventUnsafe(m_cmd, kEventUnregister, data);
+
+                    m_freeIndices.Enqueue(readyToRelease.index);
+                }
+                else
+                {
+                    break;
+                }
+            }
+
             if (m_currentEventDataIndices[poolIndex] > 0)
             {
                 Graphics.ExecuteCommandBuffer(m_cmd);
@@ -154,21 +169,7 @@ namespace UniBindlessSample
             }
 
             m_currentFrameIndex++;
-
             m_currentEventDataIndices[m_currentFrameIndex % MAX_FRAMES_IN_FLIGHT] = 0;
-            //
-            while (m_pendingRelease.Count > 0)
-            {
-                var pending = m_pendingRelease.Peek();
-                if (Time.frameCount >= pending.releaseFrame + m_maxQueuedFrames)
-                {
-                    m_freeIndices.Enqueue(m_pendingRelease.Dequeue().index);
-                }
-                else
-                {
-                    break;
-                }
-            }
         }
 
         public uint RegisterTexture(Texture texture, bool isReadonly = true)
